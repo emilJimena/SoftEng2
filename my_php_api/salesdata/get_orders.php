@@ -32,8 +32,9 @@ if ($orders_result && $orders_result->num_rows > 0) {
         $order['items'] = $items;
 
         // ✅ Include amount paid and change
-        $order['amountPaid'] = (float)$order['amount_paid'];
-        $order['change'] = (float)$order['change_amount'];
+$order['amount_paid'] = (float)$order['amount_paid'];
+$order['change'] = (float)$order['change_amount'];
+
 
         $orders[] = $order;
 

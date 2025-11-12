@@ -1,0 +1,8 @@
+Array
+(
+    [paymentMethod] => Cash
+    [voucher] => None
+    [total] => 419
+    [amountPaid] => 1000
+    [change] => 581
+)

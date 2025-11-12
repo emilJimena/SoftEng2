@@ -87,14 +87,24 @@ class _SalesContentState extends State<SalesContent> {
           }).toList() ??
           [];
 
-      allOrders.add({
-        'orderName': order['order_name'] ?? 'Order',
-        'orderDate': order['order_date'] ?? '--',
-        'orderTime': order['order_time'] ?? '--',
-        'purchaseMethod': order['payment_method'] ?? 'Cash',
-        'voucher': order['voucher'] ?? '',
-        'items': items,
-      });
+allOrders.add({
+  'orderName': order['order_name'] ?? 'Order',
+  'orderDate': order['order_date'] ?? '--',
+  'orderTime': order['order_time'] ?? '--',
+  'purchaseMethod': order['payment_method'] ?? order['paymentMethod'] ?? 'Cash',
+  'voucher': order['voucher'] ?? '',
+  'amountPaid': double.tryParse(
+        (order['amount_paid'] ?? order['amountPaid'] ?? '0').toString(),
+      ) ??
+      0.0,
+  'change': double.tryParse(
+        (order['change_amount'] ?? order['change'] ?? '0').toString(),
+      ) ??
+      0.0,
+  'items': items,
+});
+
+
     }
 
     allOrders.sort((a, b) {

@@ -6,7 +6,14 @@ header("Access-Control-Allow-Headers: Content-Type");
 include("../db.php"); // Database connection
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
-    $data = json_decode(file_get_contents("php://input"), true);
+// Read JSON input or normal POST
+$raw = file_get_contents("php://input");
+$data = json_decode($raw, true);
+
+// If Flutter sent normal form-data instead of JSON
+if (!$data && !empty($_POST)) {
+    $data = $_POST;
+}
 
     if (!$data || !isset($data['orderId']) || !isset($data['items']) || !isset($data['total'])) {
         echo json_encode(["success" => false, "message" => "Missing order ID, items, or total"]);

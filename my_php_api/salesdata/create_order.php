@@ -7,6 +7,8 @@ include("../db.php"); // Database connection
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $data = json_decode(file_get_contents("php://input"), true);
+    
+    file_put_contents("debug_log.txt", print_r($data, true));
 
     $paymentMethod = $conn->real_escape_string($data['paymentMethod'] ?? 'Cash');
     $voucher = $conn->real_escape_string($data['voucher'] ?? 'None');
@@ -24,7 +26,7 @@ $stmt = $conn->prepare("
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ");
 $stmt->bind_param(
-    "ssssdidd", // s=string, d=float, i=int
+    "ssssdddd",
     $orderName,
     $orderDate,
     $orderTime,
@@ -34,9 +36,6 @@ $stmt->bind_param(
     $amountPaid,
     $change
 );
-
-
-
     if (!$stmt->execute()) {
         echo json_encode(["success" => false, "message" => "Failed to create order: ".$stmt->error]);
         exit;

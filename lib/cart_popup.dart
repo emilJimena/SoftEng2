@@ -208,15 +208,18 @@ void initState() {
       }
 
       // 2️⃣ Create order
-      final createOrderResp = await http.post(
-        Uri.parse('$apiBase/salesdata/create_order.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'paymentMethod': selectedPaymentMethod,
-          'voucher': selectedVoucher ?? 'None',
-          'total': _totalAfterDiscount,
-        }),
-      );
+final createOrderResp = await http.post(
+  Uri.parse('$apiBase/salesdata/create_order.php'),
+  headers: {'Content-Type': 'application/json'},
+  body: jsonEncode({
+    'paymentMethod': selectedPaymentMethod,
+    'voucher': selectedVoucher ?? 'None',
+    'total': _totalAfterDiscount,
+    'amountPaid': _amountPaid,   // <-- Add this
+    'change': _change,           // <-- Add this
+  }),
+);
+
 
       final createOrderData = jsonDecode(createOrderResp.body);
       if (createOrderData['success'] != true) {
