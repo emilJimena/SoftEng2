@@ -206,7 +206,6 @@ void initState() {
           );
         }
       }
-
       // 2️⃣ Create order
 final createOrderResp = await http.post(
   Uri.parse('$apiBase/salesdata/create_order.php'),
@@ -215,12 +214,10 @@ final createOrderResp = await http.post(
     'paymentMethod': selectedPaymentMethod,
     'voucher': selectedVoucher ?? 'None',
     'total': _totalAfterDiscount,
-    'amountPaid': _amountPaid,   // <-- Add this
-    'change': _change,           // <-- Add this
+    'amountPaid': _amountPaid,  // <--- send the actual amount
+    'change': _change,          // <--- send the calculated change
   }),
 );
-
-
       final createOrderData = jsonDecode(createOrderResp.body);
       if (createOrderData['success'] != true) {
         throw Exception(createOrderData['message'] ?? 'Failed to create order');
@@ -901,9 +898,11 @@ if (_amountPaid > 0 && _paymentFocusNode.hasFocus) ...[
 
       const SizedBox(height: 12),
 
-      // 💰 Payment Input
+  
 _amountPaid == 0
-    ? TextField(
+
+    ? // 💵 Payment Input
+TextField(
   focusNode: _paymentFocusNode,
   controller: _paymentController,
   keyboardType: TextInputType.number,
@@ -920,14 +919,32 @@ _amountPaid == 0
     prefixText: "₱",
   ),
   onSubmitted: (value) {
-    // Only update _amountPaid when user presses Enter/done
     String clean = value.replaceAll(',', '');
-    setState(() {
-      _amountPaid = double.tryParse(clean) ?? 0.0;
-    });
+    double entered = double.tryParse(clean) ?? 0.0;
+
+    if (entered >= _totalAfterDiscount) {
+      setState(() {
+        _amountPaid = entered;
+      });
+    } else {
+      // Show error message if less than total
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Amount must be at least ₱${_totalAfterDiscount.toStringAsFixed(2)}",
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+
+      // Clear the invalid input
+      _paymentController.clear();
+      setState(() {
+        _amountPaid = 0.0;
+      });
+    }
   },
 )
-
     : GestureDetector(
         onTap: () {
           // Allow editing again if user taps on the displayed amount
