@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'config/api_config.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 
 class CartPopupPage extends StatefulWidget {
@@ -51,6 +52,7 @@ class _CartPopupPageState extends State<CartPopupPage> {
   final List<String> paymentMethods = ['Cash', 'Card', 'GCash', 'Other'];
   List<Map<String, dynamic>> vouchers = [];
   String? selectedVoucher;
+  String? _cashierName;
 
   final TextEditingController _paymentController = TextEditingController();
   final FocusNode _paymentFocusNode = FocusNode();
@@ -68,7 +70,6 @@ class _CartPopupPageState extends State<CartPopupPage> {
 void initState() {
   super.initState();
 
-  // 🔸 Add this focus listener
   _paymentFocusNode.addListener(() {
     setState(() {}); // rebuild UI when focus changes
   });
@@ -83,12 +84,15 @@ void initState() {
     return {...item, 'quantity': qty};
   }).toList();
 
-  // Set default voucher and payment method
   selectedVoucher = 'None';
   selectedPaymentMethod = 'Cash';
 
   _fetchVouchers();
+
+  // ✅ Load logged-in user immediately
+  _checkLoggedInUser();
 }
+
 
   @override
   void dispose() {
@@ -96,6 +100,16 @@ void initState() {
     super.dispose();
   }
 
+  Future<void> _checkLoggedInUser() async {
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  String? savedUsername = prefs.getString("username");
+  String? savedRole = prefs.getString("role");
+  String? savedUserId = prefs.getString("user_id") ?? prefs.getString("id");
+
+  if (savedUsername != null && savedRole != null && savedUserId != null) {
+    _cashierName = savedUsername; // store it here for checkout
+  }
+}
 
   Future<void> _fetchVouchers() async {
     try {
@@ -122,214 +136,226 @@ void initState() {
     }
   }
 
-  Future<void> _checkout() async {
-    if (items.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Cart is empty")));
-      return;
-    }
-    if (selectedPaymentMethod == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Select a payment method")));
-      return;
-    }
-    if (_amountPaid < _totalAfterDiscount) {
-      ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Insufficient payment amount")),
-       );
-      return;
-    }
+Future<void> _checkout() async {
+  // 1️⃣ Ensure cashier name is loaded
+  if (_cashierName == null || _cashierName!.isEmpty) {
+    await _checkLoggedInUser();
+  }
 
+  if (_cashierName == null || _cashierName!.isEmpty) {
+    _cashierName = "Unknown"; // fallback
+  }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(color: Colors.orangeAccent),
+  // 2️⃣ Validate cart
+  if (items.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Cart is empty")),
+    );
+    return;
+  }
+
+  if (_amountPaid < _totalAfterDiscount) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          "Amount must be at least ₱${_totalAfterDiscount.toStringAsFixed(2)}",
+        ),
+        backgroundColor: Colors.redAccent,
       ),
     );
+    return;
+  }
 
+  // 3️⃣ Show loading dialog
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(
+      child: CircularProgressIndicator(color: Colors.orangeAccent),
+    ),
+  );
+
+  bool success = true;
+
+  try {
     final apiBase = await ApiConfig.getBaseUrl();
-    bool success = true;
 
-    try {
-      // 1️⃣ Deduct inventory for each item
-      for (var item in items) {
-        final menuId = int.tryParse(item['menu_id']?.toString() ?? '0') ?? 0;
-        final quantity = int.tryParse(item['quantity']?.toString() ?? '1') ?? 1;
-        if (menuId <= 0) continue;
+    // 🔹 Deduct inventory for each item
+    for (var item in items) {
+      final menuId = int.tryParse(item['menu_id']?.toString() ?? '0') ?? 0;
+      final quantity = int.tryParse(item['quantity']?.toString() ?? '1') ?? 1;
+      if (menuId <= 0) continue;
 
-        List<int> addonIds = [];
-        if (item['addons'] != null && item['addons'] is List) {
-          for (var addon in item['addons']) {
-            if (addon is Map<String, dynamic> && addon['id'] != null) {
-              addonIds.add(addon['id']);
-            }
+      List<int> addonIds = [];
+      if (item['addons'] != null && item['addons'] is List) {
+        for (var addon in item['addons']) {
+          if (addon is Map<String, dynamic> && addon['id'] != null) {
+            addonIds.add(addon['id']);
           }
         }
-
-        // a) Deduct raw inventory
-        final deductInventoryResp = await http.post(
-          Uri.parse('$apiBase/inventory/deduct_inventory.php'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'menu_id': menuId,
-            'quantity': quantity,
-            'selected_addon_ids': addonIds,
-          }),
-        );
-
-        final deductInventoryData = jsonDecode(deductInventoryResp.body);
-        if (deductInventoryData['success'] != true) {
-          throw Exception(
-            deductInventoryData['message'] ?? 'Failed to deduct inventory',
-          );
-        }
-
-        // b) Deduct inventory log
-        final deductLogResp = await http.post(
-          Uri.parse('$apiBase/inventory/deduct_inventory_log.php'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'menu_id': menuId,
-            'quantity': quantity,
-            'user_id': widget.userId,
-          }),
-        );
-
-        final deductLogData = jsonDecode(deductLogResp.body);
-        if (deductLogData['success'] != true) {
-          throw Exception(
-            deductLogData['message'] ?? 'Failed to deduct inventory log',
-          );
-        }
       }
-      // 2️⃣ Create order
-final createOrderResp = await http.post(
-  Uri.parse('$apiBase/salesdata/create_order.php'),
-  headers: {'Content-Type': 'application/json'},
-  body: jsonEncode({
-    'paymentMethod': selectedPaymentMethod,
-    'voucher': selectedVoucher ?? 'None',
-    'total': _totalAfterDiscount,
-    'amountPaid': _amountPaid,  // <--- send the actual amount
-    'change': _change,          // <--- send the calculated change
-  }),
-);
-      final createOrderData = jsonDecode(createOrderResp.body);
-      if (createOrderData['success'] != true) {
-        throw Exception(createOrderData['message'] ?? 'Failed to create order');
-      }
-      final orderId = createOrderData['order_id'];
 
-      // 3️⃣ Prepare and save order items
-      final orderItems = items.map((item) {
-        String size = item['sizeName'] ?? '';
-        List<String> addonNames = [];
-        if (item['addons'] != null) {
-          for (var addon in item['addons']) {
-            if (addon is Map<String, dynamic>) {
-              final addonCategory = addon['category'] ?? '';
-              if (addonCategory != 'Size') {
-                addonNames.add(addon['name'] ?? '');
-              } else {
-                size = addon['name'] ?? size;
-              }
-            }
-          }
-        }
-        double itemTotal = _computeItemTotal(item);
-        double discountedTotal = itemTotal * (1 - (_discountPercent / 100));
-
-        return {
-          'menuItem': item['name'] ?? '',
-          'category': item['category'] ?? '',
-          'quantity': item['quantity'],
-          'size': size,
-          'price': discountedTotal,
-          'addons': addonNames,
-          'voucher': selectedVoucher ?? 'None',
-          'total': discountedTotal,
-        };
-      }).toList();
-
-      final saveOrderResp = await http.post(
-        Uri.parse('$apiBase/salesdata/save_order.php'),
+      // Deduct inventory
+      final deductInventoryResp = await http.post(
+        Uri.parse('$apiBase/inventory/deduct_inventory.php'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'orderId': orderId,
-          'items': orderItems,
-          'total': _totalAfterDiscount,
+          'menu_id': menuId,
+          'quantity': quantity,
+          'selected_addon_ids': addonIds,
         }),
       );
 
-      final saveOrderData = jsonDecode(saveOrderResp.body);
-      if (saveOrderData['success'] != true) {
+      final deductInventoryData = jsonDecode(deductInventoryResp.body);
+      if (deductInventoryData['success'] != true) {
         throw Exception(
-          saveOrderData['message'] ?? 'Failed to save order items',
+          deductInventoryData['message'] ?? 'Failed to deduct inventory',
         );
       }
 
-      // 4️⃣ Consume voucher if used
-      if (selectedVoucher != null && selectedVoucher != 'None') {
-        try {
-          final usedVoucher = vouchers.firstWhere(
-            (v) => v['name']?.toString() == selectedVoucher,
-            orElse: () => <String, dynamic>{},
-          );
+      // Deduct inventory log
+      final deductLogResp = await http.post(
+        Uri.parse('$apiBase/inventory/deduct_inventory_log.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'menu_id': menuId,
+          'quantity': quantity,
+          'user_id': widget.userId,
+        }),
+      );
 
-          if (usedVoucher.isNotEmpty) {
-            final voucherId = usedVoucher['id'];
-            final consumeVoucherResp = await http.post(
-              Uri.parse('$apiBase/vouchers/consume_voucher.php'),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({
-                'user_id': widget.userId,
-                'voucher_id': voucherId,
-                'order_id': orderId,
-              }),
-            );
+      final deductLogData = jsonDecode(deductLogResp.body);
+      if (deductLogData['success'] != true) {
+        throw Exception(
+          deductLogData['message'] ?? 'Failed to deduct inventory log',
+        );
+      }
+    }
 
-            final consumeData = jsonDecode(consumeVoucherResp.body);
-            if (consumeData['success'] != true) {
-              print('Failed to consume voucher: ${consumeData['message']}');
+    // 4️⃣ Create order
+    final createOrderResp = await http.post(
+      Uri.parse('$apiBase/salesdata/create_order.php'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'userId': widget.userId,
+        'handled_by': _cashierName, // ✅ guaranteed now
+        'paymentMethod': selectedPaymentMethod,
+        'voucher': selectedVoucher ?? 'None',
+        'total': _totalAfterDiscount,
+        'amountPaid': _amountPaid,
+        'change': _change,
+      }),
+    );
+
+    final createOrderData = jsonDecode(createOrderResp.body);
+    if (createOrderData['success'] != true) {
+      throw Exception(createOrderData['message'] ?? 'Failed to create order');
+    }
+
+    final orderId = createOrderData['order_id'];
+
+    // 5️⃣ Save order items
+    final orderItems = items.map((item) {
+      String size = item['sizeName'] ?? '';
+      List<String> addonNames = [];
+      if (item['addons'] != null) {
+        for (var addon in item['addons']) {
+          if (addon is Map<String, dynamic>) {
+            final addonCategory = addon['category'] ?? '';
+            if (addonCategory != 'Size') {
+              addonNames.add(addon['name'] ?? '');
+            } else {
+              size = addon['name'] ?? size;
             }
           }
-        } catch (e) {
-          print('Error consuming voucher: $e');
         }
       }
 
-      // 5️⃣ Clear cart
-      setState(() => items.clear());
-      widget.cartItems.clear();
-      widget.onCartUpdated(items);
-    } catch (e) {
-      success = false;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Checkout failed: $e')));
-    } finally {
-      Navigator.pop(context); // hide loading
+      double itemTotal = _computeItemTotal(item);
+      double discountedTotal = itemTotal * (1 - (_discountPercent / 100));
+
+      return {
+        'menuItem': item['name'] ?? '',
+        'category': item['category'] ?? '',
+        'quantity': item['quantity'],
+        'size': size,
+        'price': discountedTotal,
+        'addons': addonNames,
+        'voucher': selectedVoucher ?? 'None',
+        'total': discountedTotal,
+      };
+    }).toList();
+
+    final saveOrderResp = await http.post(
+      Uri.parse('$apiBase/salesdata/save_order.php'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'orderId': orderId,
+        'userId': widget.userId,
+        'items': orderItems,
+        'total': _totalAfterDiscount,
+      }),
+    );
+
+    final saveOrderData = jsonDecode(saveOrderResp.body);
+    if (saveOrderData['success'] != true) {
+      throw Exception(saveOrderData['message'] ?? 'Failed to save order items');
     }
 
-    if (success) {
-  ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(
-    const SnackBar(content: Text('Checkout successful!')),
-  );
+    // 6️⃣ Consume voucher if used
+    if (selectedVoucher != null && selectedVoucher != 'None') {
+      try {
+        final usedVoucher = vouchers.firstWhere(
+          (v) => v['name']?.toString() == selectedVoucher,
+          orElse: () => <String, dynamic>{},
+        );
 
-  // 🧹 Reset payment input and amount
-  _paymentController.clear();
-  _amountPaid = 0.0;
+        if (usedVoucher.isNotEmpty) {
+          final voucherId = usedVoucher['id'];
+          final consumeVoucherResp = await http.post(
+            Uri.parse('$apiBase/vouchers/consume_voucher.php'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'user_id': widget.userId,
+              'voucher_id': voucherId,
+              'order_id': orderId,
+            }),
+          );
 
-  widget.onClose();
+          final consumeData = jsonDecode(consumeVoucherResp.body);
+          if (consumeData['success'] != true) {
+            print('Failed to consume voucher: ${consumeData['message']}');
+          }
+        }
+      } catch (e) {
+        print('Error consuming voucher: $e');
+      }
+    }
+
+    // 7️⃣ Clear cart
+    setState(() => items.clear());
+    widget.cartItems.clear();
+    widget.onCartUpdated(items);
+
+    // 8️⃣ Reset payment
+    _paymentController.clear();
+    _amountPaid = 0.0;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Checkout successful!')),
+    );
+
+    widget.onClose();
+  } catch (e) {
+    success = false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Checkout failed: $e')),
+    );
+  } finally {
+    Navigator.pop(context); // hide loading
+  }
 }
 
-  }
 
   void _incrementQuantity(int index) {
     setState(() {

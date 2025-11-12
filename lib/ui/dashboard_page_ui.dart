@@ -14,6 +14,7 @@ import '../addon_page.dart';
 import '../add_menu_addon_page.dart';
 import '../create_voucher.dart';
 import '../assign_vouchers.dart';
+import '../orders_popup.dart';
 
 // ===================== PIZZA DASHBOARD PAGE =====================
 class PizzaDashboardPage extends StatefulWidget {
@@ -514,7 +515,7 @@ class _Header extends StatelessWidget {
                 style: GoogleFonts.poppins(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: const Color.fromARGB(255, 226, 66, 2), // text color stands out on image
+                  color: const Color.fromARGB(255, 255, 255, 255), // text color stands out on image
                 ),
               ),
             ),
@@ -607,27 +608,21 @@ class _CategoryChipsState extends State<_CategoryChips> {
                     categories[index],
                     style: GoogleFonts.poppins(
                       color: selectedIndex == index
-                          ? Colors
-                                .white // selected stays white
-                          : Colors.grey[800], // dark gray for unselected
+                          ? Colors.white
+                          : Colors.grey[800],
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   selected: selectedIndex == index,
                   selectedColor: Colors.orange,
-                  backgroundColor: const Color.fromARGB(
-                    255,
-                    255,
-                    255,
-                    255,
-                  ), // optional: lighter background
+                  backgroundColor: Colors.white,
                   onSelected: (_) {
                     setState(() => selectedIndex = index);
                     widget.onFilter(categories[index]);
                   },
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(25),
-                    side: const BorderSide(color: Color.fromARGB(255, 0, 0, 0)),
+                    side: const BorderSide(color: Colors.black),
                   ),
                 );
               },
@@ -635,6 +630,30 @@ class _CategoryChipsState extends State<_CategoryChips> {
           ),
         ),
         const SizedBox(width: 10),
+        // Orders Popup Button
+        Container(
+          margin: const EdgeInsets.only(right: 8),
+          child: ElevatedButton.icon(
+            onPressed: () {
+              // Show the Orders Popup
+              OrdersPopup.show(context);
+            },
+            icon: const Icon(Icons.list_alt, size: 18),
+            label: Text(
+              "Orders",
+              style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+          ),
+        ),
+        // Cart Button
         Container(
           decoration: const BoxDecoration(
             color: Colors.orange,
@@ -649,6 +668,7 @@ class _CategoryChipsState extends State<_CategoryChips> {
     );
   }
 }
+
 
 // ================== MENU GRID ==================
 class MenuGrid extends StatelessWidget {
