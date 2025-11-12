@@ -39,7 +39,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $amountPaid,
         $change,
         $handledBy // bind it here
-    );
+    );  
 
     if (!$stmt->execute()) {
         echo json_encode(["success" => false, "message" => "Failed to create order: ".$stmt->error]);

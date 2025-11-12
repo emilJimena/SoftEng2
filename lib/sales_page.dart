@@ -95,15 +95,13 @@ allOrders.add({
   'voucher': order['voucher'] ?? '',
   'amountPaid': double.tryParse(
         (order['amount_paid'] ?? order['amountPaid'] ?? '0').toString(),
-      ) ??
-      0.0,
+      ) ?? 0.0,
   'change': double.tryParse(
         (order['change_amount'] ?? order['change'] ?? '0').toString(),
-      ) ??
-      0.0,
+      ) ?? 0.0,
+  'handledBy': order['handled_by'] ?? order['cashier'] ?? 'Unknown',
   'items': items,
 });
-
 
     }
 
@@ -862,6 +860,13 @@ pw.Text(
                                                                 FontWeight.bold,
                                                           ),
                                                     ),
+Text(
+  "Processed by: ${order['handledBy']}",
+  style: GoogleFonts.poppins(
+    fontSize: 12,
+    color: Colors.black54,
+  ),
+),
                                                     Text(
                                                       "Time: ${order['orderTime']} | Payment: ${order['purchaseMethod']} | Paid: ₱${order['amountPaid'] ?? '0.00'} | Change: ₱${order['change'] ?? '0.00'}",
                                                       style:
