@@ -16,10 +16,26 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $orderName = "Customer Order";
     $orderDate = date("M j, Y");
     $orderTime = date("g:i A");
+$amountPaid = (float)($data['amountPaid'] ?? 0);
+$change = (float)($data['change'] ?? 0);
 
-    // Insert into orders with voucher & total
-    $stmt = $conn->prepare("INSERT INTO orders (order_name, order_date, order_time, payment_method, voucher, total) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("sssssd", $orderName, $orderDate, $orderTime, $paymentMethod, $voucher, $total);
+$stmt = $conn->prepare("
+    INSERT INTO orders (order_name, order_date, order_time, payment_method, voucher, total, amount_paid, change_amount) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+");
+$stmt->bind_param(
+    "ssssdidd", // s=string, d=float, i=int
+    $orderName,
+    $orderDate,
+    $orderTime,
+    $paymentMethod,
+    $voucher,
+    $total,
+    $amountPaid,
+    $change
+);
+
+
 
     if (!$stmt->execute()) {
         echo json_encode(["success" => false, "message" => "Failed to create order: ".$stmt->error]);

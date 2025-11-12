@@ -305,14 +305,15 @@ class _SalesContentState extends State<SalesContent> {
                       ],
                     ),
                     pw.SizedBox(height: 2),
-                    pw.Text(
-                      "Date: ${order['orderDate']} | Time: ${order['orderTime']} | Payment: ${order['purchaseMethod']}",
-                      style: pw.TextStyle(
-                        font: robotoFont,
-                        fontSize: 11,
-                        color: PdfColors.grey700,
-                      ),
-                    ),
+pw.Text(
+  "Date: ${order['orderDate']} | Time: ${order['orderTime']} | Payment: ${order['purchaseMethod']} | Paid: ₱${order['amountPaid'] ?? '0.00'} | Change: ₱${order['change'] ?? '0.00'}",
+  style: pw.TextStyle(
+    font: robotoFont,
+    fontSize: 11,
+    color: PdfColors.grey700,
+  ),
+),
+
                     if ((order['voucher'] ?? '').toString().isNotEmpty)
                       pw.Text(
                         "Voucher: ${order['voucher']}",
@@ -852,7 +853,7 @@ class _SalesContentState extends State<SalesContent> {
                                                           ),
                                                     ),
                                                     Text(
-                                                      "Time: ${order['orderTime']} | Payment: ${order['purchaseMethod']}",
+                                                      "Time: ${order['orderTime']} | Payment: ${order['purchaseMethod']} | Paid: ₱${order['amountPaid'] ?? '0.00'} | Change: ₱${order['change'] ?? '0.00'}",
                                                       style:
                                                           GoogleFonts.poppins(
                                                             fontSize: 13,

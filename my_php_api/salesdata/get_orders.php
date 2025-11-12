@@ -30,6 +30,11 @@ if ($orders_result && $orders_result->num_rows > 0) {
 
         // Add the items under this order
         $order['items'] = $items;
+
+        // ✅ Include amount paid and change
+        $order['amountPaid'] = (float)$order['amount_paid'];
+        $order['change'] = (float)$order['change_amount'];
+
         $orders[] = $order;
 
         $items_query->close();

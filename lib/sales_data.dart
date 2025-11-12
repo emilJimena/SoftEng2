@@ -29,10 +29,13 @@ class SalesData {
   }
 
   Future<void> addOrder(
-    List<Map<String, dynamic>> cartItems, {
-    required String paymentMethod,
-    String? voucher, // 👈 add this
-  }) async {
+  List<Map<String, dynamic>> cartItems, {
+  required String paymentMethod,
+  String? voucher,
+  required double amountPaid, // new
+  required double change,     // new
+}) async {
+
     if (cartItems.isEmpty) return;
     if (saveApiUrl.isEmpty) await _setApiUrls();
 
@@ -44,14 +47,15 @@ class SalesData {
         .where((o) => o['orderDate'] == todayStr)
         .length;
 
-    final newOrder = {
-      'orderName': 'Order ${todayOrdersCount + 1}',
-      'orderDate': todayStr,
-      'orderTime':
-          '${now.hour > 12 ? now.hour - 12 : now.hour}:${now.minute.toString().padLeft(2, '0')} ${now.hour >= 12 ? "PM" : "AM"}',
-      'paymentMethod': paymentMethod,
-      'voucher': voucher ?? '',
-      'items': cartItems.map((item) {
+  final newOrder = {
+    'orderName': 'Order ${todayOrdersCount + 1}',
+    'orderDate': todayStr,
+    'orderTime': '${now.hour > 12 ? now.hour - 12 : now.hour}:${now.minute.toString().padLeft(2, '0')} ${now.hour >= 12 ? "PM" : "AM"}',
+    'paymentMethod': paymentMethod,
+    'voucher': voucher ?? '',
+    'amountPaid': amountPaid.toStringAsFixed(2), // new
+    'change': change.toStringAsFixed(2),         // new
+    'items': cartItems.map((item) {
         final price = (item['price'] ?? 0) * (item['quantity'] ?? 1);
         return {
           'menuItem': item['name'] ?? '',
