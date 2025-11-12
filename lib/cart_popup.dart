@@ -3,6 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'config/api_config.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+
 
 class CartPopupPage extends StatefulWidget {
   final int userId;
@@ -23,6 +26,24 @@ class CartPopupPage extends StatefulWidget {
   State<CartPopupPage> createState() => _CartPopupPageState();
 }
 
+class ThousandsFormatter extends TextInputFormatter {
+  final NumberFormat _formatter = NumberFormat("#,###,###");
+
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    String clean = newValue.text.replaceAll(',', '');
+    if (clean.isEmpty) return newValue.copyWith(text: '');
+    int value = int.tryParse(clean) ?? 0;
+    String formatted = _formatter.format(value);
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
 class _CartPopupPageState extends State<CartPopupPage> {
   late List<Map<String, dynamic>> items;
   String? selectedPaymentMethod;
@@ -31,26 +52,50 @@ class _CartPopupPageState extends State<CartPopupPage> {
   List<Map<String, dynamic>> vouchers = [];
   String? selectedVoucher;
 
-  @override
-  void initState() {
-    super.initState();
+  final TextEditingController _paymentController = TextEditingController();
+  final FocusNode _paymentFocusNode = FocusNode();
+  double _amountPaid = 0.0;
 
-    items = widget.cartItems.map((item) {
-      int qty = 1;
-      if (item['quantity'] is int) {
-        qty = item['quantity'];
-      } else if (item['quantity'] is String) {
-        qty = int.tryParse(item['quantity']) ?? 1;
-      }
-      return {...item, 'quantity': qty};
-    }).toList();
+  // ✅ Add this line here
+  final NumberFormat currencyFormatter = NumberFormat("#,###.00");
 
-    // Set default voucher and payment method
-    selectedVoucher = 'None';
-    selectedPaymentMethod = 'Cash';
-
-    _fetchVouchers();
+  double get _change {
+    if (_amountPaid <= 0) return 0.0;
+    return _amountPaid - _totalAfterDiscount;
   }
+
+@override
+void initState() {
+  super.initState();
+
+  // 🔸 Add this focus listener
+  _paymentFocusNode.addListener(() {
+    setState(() {}); // rebuild UI when focus changes
+  });
+
+  items = widget.cartItems.map((item) {
+    int qty = 1;
+    if (item['quantity'] is int) {
+      qty = item['quantity'];
+    } else if (item['quantity'] is String) {
+      qty = int.tryParse(item['quantity']) ?? 1;
+    }
+    return {...item, 'quantity': qty};
+  }).toList();
+
+  // Set default voucher and payment method
+  selectedVoucher = 'None';
+  selectedPaymentMethod = 'Cash';
+
+  _fetchVouchers();
+}
+
+  @override
+  void dispose() {
+    _paymentFocusNode.dispose();
+    super.dispose();
+  }
+
 
   Future<void> _fetchVouchers() async {
     try {
@@ -90,6 +135,13 @@ class _CartPopupPageState extends State<CartPopupPage> {
       ).showSnackBar(const SnackBar(content: Text("Select a payment method")));
       return;
     }
+    if (_amountPaid < _totalAfterDiscount) {
+      ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Insufficient payment amount")),
+       );
+      return;
+    }
+
 
     showDialog(
       context: context,
@@ -264,11 +316,19 @@ class _CartPopupPageState extends State<CartPopupPage> {
     }
 
     if (success) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Checkout successful!')));
-      widget.onClose();
-    }
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(
+    const SnackBar(content: Text('Checkout successful!')),
+  );
+
+  // 🧹 Reset payment input and amount
+  _paymentController.clear();
+  _amountPaid = 0.0;
+
+  widget.onClose();
+}
+
   }
 
   void _incrementQuantity(int index) {
@@ -635,208 +695,324 @@ class _CartPopupPageState extends State<CartPopupPage> {
                       },
                     ),
             ),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(24),
+Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: Colors.white,
+    borderRadius: const BorderRadius.only(
+      bottomLeft: Radius.circular(24),
+    ),
+  ),
+  child: Column(
+    children: [
+      DropdownButtonFormField<String>(
+        value: selectedVoucher,
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: Colors.grey[200],
+          labelText: 'Voucher',
+          labelStyle: const TextStyle(color: Colors.orangeAccent),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        dropdownColor: Colors.white,
+        items: [
+          const DropdownMenuItem<String>(
+            value: 'None',
+            child: Text(
+              'None',
+              style: TextStyle(color: Colors.black87),
+            ),
+          ),
+          ...vouchers.map<DropdownMenuItem<String>>((voucher) {
+            final expirationStr = voucher['expiration_date'] ?? '';
+            DateTime? expirationDate;
+            try {
+              expirationDate = DateTime.parse(expirationStr);
+            } catch (_) {
+              expirationDate = null;
+            }
+
+            final isExpired =
+                expirationDate != null && expirationDate.isBefore(DateTime.now());
+            final isHidden =
+                voucher['status']?.toString().toLowerCase() == 'hidden';
+
+            final formattedDate = expirationDate != null
+                ? "${expirationDate.year}-${expirationDate.month.toString().padLeft(2, '0')}-${expirationDate.day.toString().padLeft(2, '0')}"
+                : "N/A";
+
+            return DropdownMenuItem<String>(
+              value: isExpired || isHidden
+                  ? 'disabled_${voucher['id']}'
+                  : voucher['name']?.toString(),
+              enabled: !isExpired && !isHidden,
+              child: Text(
+                "${voucher['name']} - Expires: $formattedDate${isExpired ? " (Expired)" : isHidden ? " (Hidden)" : ""}",
+                style: TextStyle(
+                  color: isExpired || isHidden ? Colors.grey : Colors.black87,
                 ),
               ),
-              child: Column(
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: selectedVoucher,
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: Colors.grey[200],
-                      labelText: 'Voucher',
-                      labelStyle: const TextStyle(color: Colors.orangeAccent),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                    dropdownColor: Colors.white,
-                    items: [
-                      const DropdownMenuItem<String>(
-                        value: 'None',
-                        child: Text(
-                          'None',
-                          style: TextStyle(color: Colors.black87),
-                        ),
-                      ),
-                      ...vouchers.map<DropdownMenuItem<String>>((voucher) {
-                        final expirationStr = voucher['expiration_date'] ?? '';
-                        DateTime? expirationDate;
-                        try {
-                          expirationDate = DateTime.parse(expirationStr);
-                        } catch (_) {
-                          expirationDate = null;
-                        }
+            );
+          }).toList(),
+        ],
+        onChanged: (value) {
+          if (value != null && value.startsWith('disabled_')) return;
+          setState(() {
+            selectedVoucher = value;
+          });
+        },
+      ),
 
-                        final isExpired =
-                            expirationDate != null &&
-                            expirationDate.isBefore(DateTime.now());
+      const SizedBox(height: 12),
 
-                        final isHidden =
-                            voucher['status']?.toString().toLowerCase() ==
-                            'hidden';
+      DropdownButtonFormField<String>(
+        value: selectedPaymentMethod,
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: Colors.grey[200],
+          labelText: 'Payment Method',
+          labelStyle: const TextStyle(color: Colors.orangeAccent),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        dropdownColor: Colors.white,
+        items: paymentMethods.map((method) {
+          return DropdownMenuItem(
+            value: method,
+            child: Text(
+              method,
+              style: const TextStyle(color: Colors.black87),
+            ),
+          );
+        }).toList(),
+        onChanged: (value) {
+          setState(() {
+            selectedPaymentMethod = value;
+          });
+        },
+      ),
 
-                        final formattedDate = expirationDate != null
-                            ? "${expirationDate.year}-${expirationDate.month.toString().padLeft(2, '0')}-${expirationDate.day.toString().padLeft(2, '0')}"
-                            : "N/A";
+      const SizedBox(height: 12),
 
-                        return DropdownMenuItem<String>(
-                          value: isExpired || isHidden
-                              ? 'disabled_${voucher['id']}' // unique value so it can't be selected
-                              : voucher['name']?.toString(),
-                          enabled: !isExpired && !isHidden,
-                          child: Text(
-                            "${voucher['name']} - Expires: $formattedDate${isExpired
-                                ? " (Expired)"
-                                : isHidden
-                                ? " (Hidden)"
-                                : ""}",
-                            style: TextStyle(
-                              color: isExpired || isHidden
-                                  ? Colors.grey
-                                  : Colors.black87,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ],
-                    onChanged: (value) {
-                      if (value != null && value.startsWith('disabled_'))
-                        return; // ignore
-                      setState(() {
-                        selectedVoucher = value;
-                      });
-                    },
+      // 🧮 Totals Summary
+      Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "Subtotal:",
+                style: GoogleFonts.poppins(
+                  color: Colors.black87,
+                  fontSize: 16,
+                ),
+              ),
+              Text(
+                "₱${_subtotal.toStringAsFixed(2)}",
+                style: GoogleFonts.poppins(
+                  color: Colors.black87,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          if (selectedVoucher != null && _discountPercent > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Discount (${_discountPercent.toStringAsFixed(0)}%):",
+                  style: GoogleFonts.poppins(
+                    color: Colors.orangeAccent,
+                    fontSize: 16,
                   ),
+                ),
+                Text(
+                  "-₱${_discountAmount.toStringAsFixed(2)}",
+                  style: GoogleFonts.poppins(
+                    color: Colors.orangeAccent,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+          const Divider(color: Colors.grey),
 
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: selectedPaymentMethod,
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: Colors.grey[200],
-                      labelText: 'Payment Method',
-                      labelStyle: const TextStyle(color: Colors.orangeAccent),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                    dropdownColor: Colors.white,
-                    items: paymentMethods.map((method) {
-                      return DropdownMenuItem(
-                        value: method,
-                        child: Text(
-                          method,
-                          style: const TextStyle(color: Colors.black87),
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        selectedPaymentMethod = value;
-                      });
-                    },
-                  ),
+// 💰 Total
+Row(
+  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  children: [
+    Text(
+      "Total:",
+      style: GoogleFonts.poppins(
+        color: Colors.orangeAccent,
+        fontWeight: FontWeight.bold,
+        fontSize: 18,
+      ),
+    ),
+    Text(
+      "₱${_totalAfterDiscount.toStringAsFixed(2)}",
+      style: GoogleFonts.poppins(
+        color: Colors.black87,
+        fontWeight: FontWeight.bold,
+        fontSize: 18,
+      ),
+    ),
+  ],
+),
 
-                  const SizedBox(height: 12),
-                  Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            "Subtotal:",
-                            style: GoogleFonts.poppins(
-                              color: Colors.black87,
-                              fontSize: 16,
-                            ),
-                          ),
-                          Text(
-                            "₱${_subtotal.toStringAsFixed(2)}",
-                            style: GoogleFonts.poppins(
-                              color: Colors.black87,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (selectedVoucher != null && _discountPercent > 0)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              "Discount (${_discountPercent.toStringAsFixed(0)}%):",
-                              style: GoogleFonts.poppins(
-                                color: Colors.orangeAccent,
-                                fontSize: 16,
-                              ),
-                            ),
-                            Text(
-                              "-₱${_discountAmount.toStringAsFixed(2)}",
-                              style: GoogleFonts.poppins(
-                                color: Colors.orangeAccent,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        ),
-                      const Divider(color: Colors.grey),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            "Total:",
-                            style: GoogleFonts.poppins(
-                              color: Colors.orangeAccent,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
-                          ),
-                          Text(
-                            "₱${_totalAfterDiscount.toStringAsFixed(2)}",
-                            style: GoogleFonts.poppins(
-                              color: Colors.black87,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _checkout,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color.fromARGB(255, 52, 207, 65),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        "Checkout",
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+// 💵 Show Amount Paid only while typing (field focused)
+if (_amountPaid > 0 && _paymentFocusNode.hasFocus) ...[
+  const SizedBox(height: 6),
+  Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(
+        "Amount Paid:",
+        style: GoogleFonts.poppins(
+          color: Colors.black87,
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      Text(
+  "₱${currencyFormatter.format(_amountPaid)}",
+  style: GoogleFonts.poppins(
+    color: Colors.black87,
+    fontSize: 16,
+    fontWeight: FontWeight.bold,
+  ),
+),
+    ],
+  ),
+],
+
+
+        ],
+      ),
+
+      const SizedBox(height: 12),
+
+      // 💰 Payment Input
+_amountPaid == 0
+    ? TextField(
+  focusNode: _paymentFocusNode,
+  controller: _paymentController,
+  keyboardType: TextInputType.number,
+  inputFormatters: [ThousandsFormatter()],
+  decoration: InputDecoration(
+    labelText: "Amount Paid",
+    labelStyle: const TextStyle(color: Colors.orangeAccent),
+    filled: true,
+    fillColor: Colors.grey[200],
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide.none,
+    ),
+    prefixText: "₱",
+  ),
+  onSubmitted: (value) {
+    // Only update _amountPaid when user presses Enter/done
+    String clean = value.replaceAll(',', '');
+    setState(() {
+      _amountPaid = double.tryParse(clean) ?? 0.0;
+    });
+  },
+)
+
+    : GestureDetector(
+        onTap: () {
+          // Allow editing again if user taps on the displayed amount
+          setState(() {
+            _amountPaid = 0.0;
+            _paymentController.clear();
+          });
+        },
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "Amount Paid:",
+              style: GoogleFonts.poppins(
+                color: Colors.black87,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
               ),
             ),
+            Text(
+  "₱${currencyFormatter.format(_amountPaid)}",
+  style: GoogleFonts.poppins(
+    color: Colors.black87,
+    fontSize: 16,
+    fontWeight: FontWeight.bold,
+  ),
+),
+
+          ],
+        ),
+      ),
+      const SizedBox(height: 10),
+
+      // 💵 Change Display
+      if (_amountPaid > 0)
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "Change:",
+              style: GoogleFonts.poppins(
+                color: Colors.black87,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+Text(
+  _change < 0 
+      ? "₱0.00" 
+      : "₱${currencyFormatter.format(_change)}",
+  style: GoogleFonts.poppins(
+    color: _change < 0 ? Colors.red : Colors.green,
+    fontSize: 16,
+    fontWeight: FontWeight.bold,
+  ),
+),
+
+          ],
+        ),
+
+      const SizedBox(height: 16),
+
+      // ✅ Checkout Button
+      SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          onPressed: _checkout,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color.fromARGB(255, 52, 207, 65),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: Text(
+            "Checkout",
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    ],
+  ),
+)
+
           ],
         ),
       ),
